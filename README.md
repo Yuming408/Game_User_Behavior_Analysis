@@ -1,5 +1,5 @@
 
-##Porject Summary
+##Project Summary
 This project conducted exploratory data analysis(EDA), user segmentation, and predictive modeling using World of Warcraft Avatar History Dateset (WOWAH). The dataset can be found: http://mmnet.iis.sinica.edu.tw/dl/wowah/. Data was first processed in Python then stored in PostgreSQL. Data analysis, visualization and predictive modeling were conducted in R
 
 ##File description:
