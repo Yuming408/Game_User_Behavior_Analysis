@@ -27,7 +27,7 @@ df <- daily_time %>%
 df$time <- as.factor(df$time)
 df <- df[order(df$cluster),]
 
-# generate plot of users' avarage gaming time in different cluster
+# generate plot of users' average gaming time in different cluster
 ggplot(df, aes(x = time, y = value, group = cluster, colour=cluster))+
   geom_point()+
   geom_line()+
