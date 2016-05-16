@@ -1,4 +1,4 @@
-#Avatars that were decteced between Jan, 2006 to Jan, 2008 are used to train the model. 
+#Avatars that were detected between Jan, 2006 to Jan, 2008 were used to train the model. 
 #We want to predict if an avatar will appear again in the future at different threshold.
 #The future time was binned in one week interval for 7 weeks. The prediction is to find out whether or not
 # a user will be seen logged into the game within a defined time frame. 
