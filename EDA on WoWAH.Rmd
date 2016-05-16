@@ -1,0 +1,215 @@
+---
+title: "User Behavior Analysis for WoW"
+author: "Yuming Fang"
+date: "May 9, 2016"
+output:
+  html_document: default
+---
+## Overview of the data
+The data set is from World of Warcraft Avatar History(WoWAH). The data was collected over 1,107 days between Jan.2006 and Jan.2009. During this period, 91,065 avatars, and 667,032 session was observed. The sampling interval was 10 minutes, which resulted in 159,408 samples. Each sample provided the status of all the avatars online during the sample period. To protect players' privacy, avatars' names and guild names was mapped into positive integers with a consistent mapping. The related fields are summarized in the following table: if player does not have guild, the guild field is assigned as -1, otherwise the guild id is an integer from 1 to 513. Each avatar can have one of the 5 races in the list of: Blood Elf, Orc, Tauren, Troll, Undead; The valid class of each avatar is: Death Knight, Druid, Hunter, Mage, Paladin, Priest, Rogue, Shaman, Warlock, Warrior. The game zone can be any of the 229 zones in WoW world.
+
+```
+     query_time      | avatar_id | guild_id | user_level | user_race | user_class |  game_zone  
+---------------------+-----------+----------+------------+-----------+------------+-------------
+ 2005-12-31 23:59:46 |         1 |       -1 |          9 | Orc       | Shaman     | Durotar
+ 2005-12-31 23:59:52 |         4 |       -1 |         14 | Orc       | Shaman     | Durotar
+ 2005-12-31 23:59:52 |         2 |       -1 |         13 | Orc       | Shaman     | Durotar
+ 2005-12-31 23:59:52 |         6 |       -1 |         18 | Orc       | Warlock    | The Barrens
+ 2005-12-31 23:59:52 |         5 |       -1 |         16 | Orc       | Hunter     | The Barrens
+```
+## Data processing
+The size of the data is about 3.7G. Data processing and field validation was conducted in Python and was saved as parse_file.py. PostgreSQL server was used to store and query the data. To improve the efficiency of query, user race and user class were saved as ENUM data type
+## Initial data analysis
+To get an overall feeling of how the data looks like, I plot the avatar number over the sample period. It shows three different moving range: 2006-01 to 2006-11; 2006-11 to 2007-04; 2007-04 to 2009-01. For each moving range, the number of avatars increased sharply then slowly decreasing. The first expansion of the game was released on January 16, 2007 and the second expansion was released on November 13, 2008. However, the release of expansion does not seem to cause the sharply increase in the number of avatars. My guess is that due to the winter holidays starts in November and summer breaks starts in April, students have more free time to play games.
+```{r, message=FALSE}
+setwd("/Users/yumingfang/wowah/WoWAH/")
+install.packages('dplyr')
+install.packages('tidyr')
+install.packages("h2o", type="source", repos=(c("http://h2o-release.s3.amazonaws.com/h2o/rel-tibshirani/8/R")))
+library(ggplot2)
+library(stringr)
+library(data.table)
+library(plyr)
+library(reshape2)
+library(dplyr)
+library(tidyr)
+library(h2o)
+h2o.init(nthreads=-1, max_mem_size="4G")
+h2o.removeAll()
+```
+
+```{r, fig.align = 'center'}
+#load data
+user_day <- read.csv("user_by_day")
+user_day <- user_day[-1,]
+day_str <- sapply(user_day$day, USE.NAMES = F,function(x){substr(x, 1, 10)})
+ggplot(user_day, aes(x = as.Date(day_str, "%Y-%m-%d"), y = count))+
+  geom_line(colour='red') +
+  xlab("Date") + ylab("Number of Avatar") + 
+  ggtitle("Number of Avatar by Date")
+```
+
+Next the data was broken down and aggregated to show average daily number of avatars per month for each year. From the plot, we can see WoW was very popular during the year 2007, the daily number of avatars was constantly over 2000 since April. The game starts to become popular in November, 2006 and starts going down since March, 2008.
+```{r, fig.align='center'}
+user_mon1 <- read.csv('user_avg_mon')
+user_mon1 <- user_mon1[c(-1, -38),]
+mon_ave_str <- sapply(user_mon1$mon, USE.NAMES = F,function(x){substr(x, 1, 10)})
+user_mon1$year <- sapply(user_mon1$mon, USE.NAMES = F,function(x){substr(x, 1, 4)})
+user_mon1$MonthN <- as.numeric(format(as.Date(user_mon1$mon),"%m")) # Month's number
+user_mon1$mon  <- months(as.Date(user_mon1$mon), abbreviate=TRUE) # Month's abbr.
+
+ggplot(data = user_mon1, aes(x = MonthN, y = avg, group = year, colour=year)) + 
+  geom_line() +
+  geom_point() +
+  scale_x_discrete(breaks = user_mon1$MonthN, labels = user_mon1$mon)+
+  xlab("Month")+
+  ylab("Number of Avatar")+
+  ggtitle("Number of Avatar by Month")
+```
+Next we want to look at the number of avatar at each day of a week. Saturday and Sunday have the highest number of avatar while Thursday has the lowest number of avatar. This is due to the game operator schedules weekly maintenance down time on Thursday morning.
+```{r, fig.align='center'}
+user_dok <- read.csv("user_avg_dow")
+wk_label <-  c("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+
+ggplot(user_dok, aes(x = dw, y = avg))+
+  geom_line(colour='green') +
+  geom_point(colour='green')+
+  scale_x_discrete(breaks = user_dok$dw, labels = wk_label)+
+  xlab("Day of Week") + ylab("Number of Avatar") + 
+  ggtitle("Number of Avatar by Day of Week")
+```
+
+We are also interested to look at the average number of avatar per hour in 24 hours range. The number of avatar starts to increase quickly at 6pm and stays high until midnight. We are expecting peak traffic happens between 8pm to midnight, and the lowest traffic happens between 3am to 9am. 
+```{r, fig.align='center'}
+user_hr <- read.csv("avg_hr")
+ggplot(user_hr, aes(x = mon, y = avg))+
+  geom_line(colour='green') +
+  geom_point(colour='green')+
+  scale_x_continuous(breaks = user_hr$mon)+
+  xlab("Time") + ylab("Number of Avatar") + 
+  ggtitle("Number of Avatar by Hour")
+```
+Next we want to investigate the distribution of number of avatar versus different user level. As level increases, less avatars were observed. The number of avatar drops quickly before level 20 and stays stable between level 30 and 70. A big drop was observed between level 70 and 71.
+```{r, fig.align='center'}
+num_level <- read.csv("num_level")
+ggplot(data = num_level, aes(x = user_level, y = count))+
+  geom_bar(stat = "identity", fill = 'blue', alpha = 0.5)+
+  scale_x_continuous(breaks = seq(1,80,5))+
+  xlab("User Level")+
+  ylab("Number of Avatar")+
+  ggtitle("Number of Avatar by Game Level")
+```
+We also examine the distribution of number of avatar versus game zone. There are 229 different zones so it is difficult to visualize all of them. Instead, we are more interested to know what are the top 5 and bottom 5 game zones.
+```
+    game_zone    |  num        
+-----------------+-------
+ Durotar         | 42996
+ Eversong Woods  | 30273
+ Orgrimmar       | 27136
+ Tirisfal Glades | 26809
+ Mulgore         | 22153
+ 
+ game_zone | num 
+-----------+-----
+ 1231崔茲  |   1
+ 15641     |   1
+ 1608峽谷  |   1
+ 2029      |   1
+ 1007城    |   1
+```
+Before going into in-depth analysis, it is useful to see if race and class would affect the number of avatar. The results show that a lot of users like class Warrior. They also like the race blood elf.
+```
+ user_class  | count 
+--------------+-------  
+ Warrior      | 21935
+ Hunter       | 11557
+ Rogue        | 11167
+ Mage         | 11128
+ Warlock      |  9817
+ Paladin      |  8302
+ Shaman       |  7987
+ Priest       |  6705
+ Druid        |  4162
+ Death Knight |  1776
+ 
+ 
+ user_race | count 
+-----------+-------
+ Blood Elf | 29091
+ Orc       | 18191
+ Undead    | 16920
+ Troll     | 14755
+ Tauren    | 14517
+ 
+ 
+
+```
+## User behavior analysis
+In this part, a more in-depth analysis was performed to examine the relationship between user engagement and different variables. First we want to look at how much time a user spends in the game everyday. It was calculated using the total amount of in session time over by the number of days that avatar was detected. We excluded the avatars having daily gaming time smaller than 10min and denotes the rest of the avatars as active users. The summary shows that among active users, 50% of the users spending more than 64 mins per day playing the game.
+```{r, fig.align='center'}
+daily_eng <- read.csv('dailyeng_user')
+daily_eng <- daily_eng[daily_eng$avg_time > 10, ]
+summary(daily_eng$avg_time)
+ggplot(daily_eng, aes(x = avg_time))+
+  geom_density(fill = 'blue', alpha = 0.5)+
+  xlab('Gaming Time, min')+
+  ggtitle('Density Plot of Average Daily Gaming Time')
+
+```
+
+We also want to look at the engagement rate at different game level. At level one, almost half of avatar does not make any progression. After level one, at most of the levels, the user engagement rate is over 80%. The exceptions are level 60, 70 and 80. Level 80 is the highest level so no one can make any more progression. Level 60 and 70 used to be the highest level until expansion package was released. So there is an decrease in engagement rate due to some users might abandon the game when they reach the highest game level.
+```{r, fig.align='center'}
+pro_rate <- read.csv("progression_rate")
+pro_rate$idle <- pro_rate$tot - pro_rate$pro
+pro_rate <- pro_rate[, -3]
+names(pro_rate) <- c("user_level", "progression_count", "idle_count")
+
+pro_rate1 <- melt(pro_rate, id.vars = 'user_level')
+pro_rate1 <- ddply(pro_rate1, .(user_level), transform, percent = value/sum(value) * 100)
+
+pro_rate1$label <- paste0(sprintf("%.0f", pro_rate1$percent), "%")
+pro_rate1 = ddply(pro_rate1, .(user_level), transform, pos = (cumsum(value) - 0.5 * value))
+
+cols = c("blue", "red")
+ggplot(data = pro_rate1, aes(x = factor(user_level), y =value, fill = variable))+
+  geom_bar(stat = 'identity', alpha = 0.5)+
+  geom_text(aes(y = pos, label = label), size = 2)+
+    coord_flip()+
+  ylab("Number of Avatar") +
+  xlab("User Level") +
+  scale_fill_manual(values = cols) +
+  ggtitle("User Engagement Rate at Different Game level")
+```
+
+Next we want to look at the how quickly a user's avatar advanced to a new level. To generate the following graph, level 60 and 70 were excluded. The graph shows a linear increase of progression time when user level increases from 1 to 70. When the second expansion package was released, users make progression very quickly.
+```{r, fig.align='center'}
+progression_time <- read.csv("progression_time")
+
+ggplot(data = progression_time[c(-60,-70), ], aes(x = user_level, y = avg))+
+  geom_line(colour = "blue")+
+  geom_point(colour = "blue")+
+  xlab('User Level')+
+  ylab('Minutes')+
+  ggtitle("Porgression Time for Each Level")
+
+```
+
+Having guild or not might affect the user engagement. I am using average daily gaming time to evaluate if having a guild making any difference in user engagement. Both of the t-test and box plot showing that there is significant difference between gaming time for users having guild versus not having guild. Users have no guild have an average of daily gaming time about 98 minutes, while users do have guild have an average of 164 minutes. So having a guild does make a difference in gaming time.
+```{r, fig.align='center'}
+guild_id <- read.csv('id_guild')
+guild_time <- merge(x = daily_eng, y = guild_id, by = 'avatar_id', all.x = TRUE)
+a <- guild_time$avg_time[guild_time$guild_id == -1]
+b <- guild_time$avg_time[guild_time$guild_id != -1]
+t.test(a,b)
+
+guild_time$if_guild <- factor(sapply(guild_time$guild_id, function (x) ifelse(x == -1, "no guild", "have guild")))
+ggplot(guild_time, aes(x = if_guild, y = avg_time))+
+  geom_boxplot(aes(fill = if_guild), alpha = 0.5)+
+  scale_fill_manual(values = cols)+
+  xlab("Guild")+
+  ylab("Gaming time, min")+
+  ggtitle("Effect of Guild on Average Daily Gaming Time")
+```
+
+
+
