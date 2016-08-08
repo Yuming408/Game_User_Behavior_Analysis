@@ -23,9 +23,9 @@ The size of the data is about 3.7G. Data processing and field validation was con
 To get an overall feeling of how the data looks like, I plot the avatar number over the sample period. It shows three different moving range: 2006-01 to 2006-11; 2006-11 to 2007-04; 2007-04 to 2009-01. For each moving range, the number of avatars increased sharply then slowly decreasing. The first expansion of the game was released on January 16, 2007 and the second expansion was released on November 13, 2008. However, the release of expansion does not seem to cause the sharply increase in the number of avatars. My guess is that due to the winter holidays starts in November and summer breaks starts in April, students have more free time to play games.
 ```{r, message=FALSE}
 setwd("/Users/yumingfang/wowah/WoWAH/")
-install.packages('dplyr')
-install.packages('tidyr')
-install.packages("h2o", type="source", repos=(c("http://h2o-release.s3.amazonaws.com/h2o/rel-tibshirani/8/R")))
+#install.packages('dplyr')
+#install.packages('tidyr')
+#install.packages("h2o", type="source", repos=(c("http://h2o-release.s3.amazonaws.com/h2o/rel-tibshirani/8/R")))
 library(ggplot2)
 library(stringr)
 library(data.table)
@@ -211,5 +211,49 @@ ggplot(guild_time, aes(x = if_guild, y = avg_time))+
   ggtitle("Effect of Guild on Average Daily Gaming Time")
 ```
 
+The rention curve for new users are shown as following. I used 1 day as threshold to generate the retention curve. After the first day, there are 45% of the users stay playing the game. After a year, the retension rate is about 10%.
 
+```{r, fig.align='center' }
+retension <- read.csv('retention')
+retension$diff <- sapply(retension$diff, function(x){as.numeric(gsub("([0-9]+).*$", "\\1", x))})
+retension$retention_rate <- sapply(retension$retain, function(x){x/retension$retain[1] * 100})
 
+ggplot(data = retension[-1, ], aes(diff, retention_rate)) +
+           #fte_theme() +
+           geom_line(colour = 'green') +
+           geom_point(size = .3) +
+           #geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = .2) +
+           labs(title = "Retention Curve", x = "dsi (days since install)", y = "Retention Percent") +
+           scale_y_continuous(breaks = seq(0,100,5), labels = paste0(seq(0,100,5), "%")) +
+           expand_limits(y = 0)
+
+```
+
+I also generate heat maps to show how does hour of the day afftect number of users playing the game. Intuitively, there are more users playing the game at night time but let's make a plot to make sure.
+
+```{r, fig.align='center'}
+playtime <- read.csv('heatmap')
+playtime <- playtime[-1, ]
+playtime$date <- sapply(playtime$playtime, function(x){substr(x, 1, 10)})
+playtime$hr <- sapply(playtime$playtime, function(x){as.numeric(substr(x, 12, 13))})
+playtime$date <- as.Date(playtime$date, "%Y-%m-%d")
+season_1 <- playtime[playtime$date < as.Date("2006-06-30"), ]
+season_2 <- playtime[playtime$date > as.Date("2006-06-30") & playtime$date < as.Date("2007-01-01"), ]
+
+ggplot(data = season_1, aes(date, hr, fill=count_hr)) +
+  #fte_theme() +
+  coord_equal() +
+  labs(x = "", y = "Hour of the day", title = "Play Time") +
+  geom_tile(colour = "white", size = 0.1) +
+  scale_fill_viridis(name = "Number of Avatar") +
+  theme(axis.ticks=element_blank(), legend.position = "bottom")
+
+ggplot(data = season_2, aes(date, hr, fill=count_hr)) +
+  #fte_theme() +
+  coord_equal() +
+  labs(x = "", y = "Hour of the day", title = "Play Time") +
+  geom_tile(colour = "white", size = 0.1) +
+  scale_fill_viridis(name = "Number of Avatar") +
+  theme(axis.ticks=element_blank(), legend.position = "bottom")
+
+```
